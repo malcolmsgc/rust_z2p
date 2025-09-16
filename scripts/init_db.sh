@@ -27,6 +27,11 @@ docker run \
     postgres -N 1000
 
 # wait for postgres to be ready to accept connections
+# Walk-through:
+# - The `until ...; do ...; done` loop runs until the condition inside the brackets (`[ ... ]`) is true.
+# - `$(...)` is command substitution: it runs the command inside and replaces it with its output.
+# - The `-f` flag in `docker inspect -f` stands for “format”. It allows you to specify a Go template to format the output of `docker inspect`.
+# - `>&2 echo ...` prints the message to stderr (standard error).
 until [ \
     "$(docker inspect -f "{{.State.Health.Status}}" ${CONTAINER_NAME})" == \
     "healthy" \
