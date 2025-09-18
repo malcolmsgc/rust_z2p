@@ -3,12 +3,27 @@
 set -x
 set -eo pipefail
 
+
+# - `command -v sqlx` finds the path to the `sqlx` executable (e.g., `/usr/local/bin/sqlx`).
+# - `[ -x ... ]` checks if that path exists and is executable.
+# - The `!` negates the test: if `sqlx` is not found or not executable, the block runs.
+# - `>&2 echo ...` prints the message to stderr (standard error).
+if ! [ -x "$(command -v sqlx)" ]; then
+echo >&2 "Error: sqlx is not installed."
+echo >&2 "Use:"
+echo >&2 "  cargo install --version='~0.8' sqlx-cli \
+--no-default-features --feature rustls,postgres"
+echo >&2 "to install it."
+exit 1
+fi
+
+
 # check if custom parameter has been set, otherwise use default values
 DB_PORT="${POSTGRES_PORT:=5432}"
 SUPERUSER="${SUPERUSER:=postgres}"
 SUPERUSER_PWD="${SUPERUSER_PWD:=postgres}"
 APP_USER="${APP_USER:=app}"
-APP_USER="${APP_USER_PWD:=secret}"
+APP_USER_PW="${APP_USER_PWD:=secret}"
 APP_DB_NAME="${APP_DB_NAME:=newsletter}"
 
 # Launch postgres using Docker
@@ -31,7 +46,6 @@ docker run \
 # - The `until ...; do ...; done` loop runs until the condition inside the brackets (`[ ... ]`) is true.
 # - `$(...)` is command substitution: it runs the command inside and replaces it with its output.
 # - The `-f` flag in `docker inspect -f` stands for “format”. It allows you to specify a Go template to format the output of `docker inspect`.
-# - `>&2 echo ...` prints the message to stderr (standard error).
 until [ \
     "$(docker inspect -f "{{.State.Health.Status}}" ${CONTAINER_NAME})" == \
     "healthy" \
@@ -40,7 +54,7 @@ until [ \
     sleep 1
 done
 
->&2 echo "Postgres is up and running on port ${DB_PORT}!"
+echo "Postgres is up and running on port ${DB_PORT}!"
 
 # Create the application user
 CREATE_QUERY="CREATE USER ${APP_USER} WITH PASSWORD '${APP_USER_PWD}';"
@@ -49,3 +63,12 @@ docker exec -it "${CONTAINER_NAME}" psql -U "${SUPERUSER}" -c "${CREATE_QUERY}"
 # Grant create DB rights to app user
 GRANT_QUERY="ALTER USER ${APP_USER} CREATEDB;"
 docker exec -it "${CONTAINER_NAME}" psql -U "${SUPERUSER}" -c "${GRANT_QUERY}"
+
+echo "Running migrations now..."
+
+# Create the application database
+DATABASE_URL=postgres://${APP_USER}:${APP_USER_PWD}@localhost:${DB_PORT}/${APP_DB_NAME}
+export DATABASE_URL
+sqlx database create
+sqlx migrate run
+echo "Postgres has been migrated, ready to go!"
